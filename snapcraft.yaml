@@ -1,0 +1,21 @@
+name: lb307
+version: git
+summary: A pragmatic loadblancer using 307 redirect
+description: |
+  lb307 is a loadbalancer redirecting requests with 307 return code to avoid network bandwith limitations of pass through mode
+
+confinement: devmode
+base: core18
+
+parts:
+  lb307:
+    plugin: go
+    go-importpath: github.com/jsmig/lb307
+    source: .
+    source-type: git
+    build-packages:
+      - gcc
+
+apps:
+  lb307:
+    command: lb307
