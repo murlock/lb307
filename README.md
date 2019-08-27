@@ -1,2 +1,5 @@
 # lb307
-Golang HTTP/HTTPS Load-Balancer with 307 redirects
+
+Golang HTTP/HTTPS Load-Balancer with 307 redirects.
+
+Minimalistic, Pragmatic, Lean.
