@@ -9,66 +9,105 @@
 
 package main
 
-import(
+import (
 	"encoding/json"
-	"strings"
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"log"
-	"os"
-	"bufio"
-	"net/http"
 	"math/rand"
+	"net/http"
 )
+
+type tags struct {
+	Locked bool   `json:"tag.lock"`
+	Up     bool   `json:"tag.up"`
+	SrvId  string `json:"tag.service_id"`
+}
+
+type Module struct {
+	Address string `json:"addr"`
+	Score   int    `json:"score"`
+	Tags    tags   `json:"tags"`
+}
 
 type jsonError struct {
 	Status  int    `json:"status"`
 	Message string `json:"message"`
 }
 
-var targets []string
+var modules []Module
+
+// refresh_conscience will retrieve from conscience list of server of a certain type.
+// IP
+func refresh_conscience(addr string, ns string, kind string) error {
+	url := fmt.Sprintf("http://%s/v3.0/%s/conscience/list?type=%s", addr, ns, kind)
+
+	fmt.Println(url)
+	res, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != 200 {
+		return fmt.Errorf("Error %d from conscience for %s", res.StatusCode, kind)
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(body, &modules); err != nil {
+		return nil
+	}
+
+	if len(modules) == 0 {
+		return fmt.Errorf("No services found for %s", kind)
+	}
+
+	// TODO(mbo): remove down, locked or instance with score 0
+	for _, item := range modules {
+		fmt.Println(item)
+	}
+
+	return nil
+}
 
 func lb307(rep http.ResponseWriter, req *http.Request) {
-	i := rand.Intn(len(targets))
-	target := targets[i]
-	encoded, _ := json.Marshal(jsonError{Status: 307, Message: target})
+	i := rand.Intn(len(modules))
+	target := modules[i]
 	req.URL.Scheme = "http"
-	req.URL.Host = target
+	req.URL.Host = target.Address
 	loc := req.URL.String()
 	rep.Header().Set("Location", loc)
 	rep.WriteHeader(307)
-	rep.Write(encoded)
+
+	// this part is required for AWS
+	// encoded, _ := json.Marshal(jsonError{Status: 307, Message: target.Address})
+	//rep.Write(encoded)
+	// log.Printf("Redirect to %s", target.Address)
 }
 
-func main() {
-	targets = make([]string, 0)
-
+func args() {
+	flag.StringVar(&namespace, "ns", "", "Namespace")
+	flag.StringVar(&conscience, "conscience", "", "Conscience IP:PORT")
+	flag.StringVar(&service_type, "type", "", "Type of service to extract")
+	flag.IntVar(&port, "port", 8000, "Listen port")
 	flag.Parse()
-	for i:=0; i<flag.NArg(); i++ {
-		path := flag.Arg(i)
-		f, err := os.Open(path)
-		if err != nil {
-			log.Fatal(err)
-		} else {
-			scanner := bufio.NewScanner(f)
-			for scanner.Scan() {
-				t := scanner.Text()
-				t = strings.TrimLeft(t, " \t\r\n")
-				t = strings.TrimRight(t, " \t\r\n")
-				if t != "" && ! strings.HasPrefix(t, "#") {
-					targets = append(targets, t)
-				}
-			}
-			if err := scanner.Err(); err != nil {
-				log.Fatal(err)
-			}
-			f.Close()
-		}
-	}
+}
 
-	if len(targets) <= 0 {
-		log.Fatal("No target")
-	}
+var namespace string
+var conscience string
+var service_type string
+var port int
 
+func main() {
+	args()
+	/* TODO(mbo): refresh_conscience should be done periodically */
+	err := refresh_conscience(conscience, namespace, service_type)
+	if err != nil {
+		log.Fatal(err)
+	}
 	http.HandleFunc("/", lb307)
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
